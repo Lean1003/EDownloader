@@ -30,7 +30,8 @@ class ConsoleLogger(io.TextIOBase):
     def write(self, text: str):
         if not text.strip(): return
         self.log_field.value += text + "\n"
-        if self.log_field.visible: self.page.update()
+        if self.page.navigation_rail.selected_index == 2:
+            self.page.update()
         self.original_stdout.write(text)
     def flush(self): self.original_stdout.flush()
 
@@ -54,15 +55,13 @@ def check_video_exists(youtube, channel_id, title):
     try:
         search_response = youtube.search().list(q=f'"{title}"', part='snippet', channelId=channel_id, type='video', maxResults=5).execute()
         for item in search_response.get('items', []):
-            if item['snippet']['title'] == title:
-                return True
+            if item['snippet']['title'] == title: return True
         return False
     except Exception as e:
-        print(f"  ⚠️ Warning: Could not check for existing video due to API error: {e}")
-        return False
+        print(f"  ⚠️ Warning: Could not check for existing video due to API error: {e}"); return False
 
-# --- MODIFICATION: upload_video now accepts a privacy_status ---
-def upload_video(youtube, cid, path, title, desc, ring, btn, privacy_status='private'):
+# --- MODIFICATION: Added 'page' parameter ---
+def upload_video(page, youtube, cid, path, title, desc, ring, btn, privacy_status='private'):
     try:
         ring.visible = True; btn.disabled = True; page.update()
         body = {'snippet': {'title': title, 'description': desc, 'channelId': cid}, 'status': {'privacyStatus': privacy_status}}
@@ -107,8 +106,7 @@ def _get_course_structure(json_file, output_dir=None):
                     tasks.append({'id': file_url, 'type': res.get('type'), 'file_url_part': file_url, 'save_dir': save_directory, 'filename': filename, 'display_path': display_path})
         return course_title_sanitized, tasks, course_title_raw
     except Exception as e:
-        print(f"❌ Error processing JSON file: {e}")
-        return None, None, None
+        print(f"❌ Error processing JSON file: {e}"); return None, None, None
 
 def get_presigned_url(file_url, headers):
     try:
@@ -147,62 +145,40 @@ def main(page: ft.Page):
         page.update()
 
     def youtube_upload_worker():
-        path = page.session.get("video_to_upload_path")
-        cid = page.session.get("selected_channel_id")
-        yt = page.session.get("youtube_client")
-        title = youtube_title_field.value
-        # --- MODIFICATION: Get privacy status from dropdown ---
-        privacy = youtube_privacy_dropdown.value or 'private'
-        
+        path, cid, yt = page.session.get("video_to_upload_path"), page.session.get("selected_channel_id"), page.session.get("youtube_client")
+        title, privacy = youtube_title_field.value, youtube_privacy_dropdown.value or 'private'
         if not all([path, title, cid, yt]): 
-            print("❌ Error: Missing video, title, or channel.")
-            youtube_upload_button.disabled = False
-            page.update()
-            return
-        upload_video(yt, cid, path, title, youtube_description_field.value, youtube_upload_progress_ring, youtube_upload_button, privacy_status=privacy)
+            print("❌ Error: Missing video, title, or channel."); youtube_upload_button.disabled = False; page.update(); return
+        # --- MODIFICATION: Pass 'page' object to helper function ---
+        upload_video(page, yt, cid, path, title, youtube_description_field.value, youtube_upload_progress_ring, youtube_upload_button, privacy_status=privacy)
 
-    # --- MODIFICATION: Bulk uploader now searches subfolders and accepts privacy status ---
-    def bulk_upload_worker(folder_path, start_button, privacy_status):
+    # --- MODIFICATION: Added 'page' parameter ---
+    def bulk_upload_worker(page, folder_path, start_button, privacy_status):
         try:
             yt, cid = page.session.get("youtube_client"), page.session.get("selected_channel_id")
-            if not all([yt, cid]):
-                print("❌ Error: Please authenticate and select a channel first.")
-                return
-
+            if not all([yt, cid]): print("❌ Error: Please authenticate and select a channel first."); return
             print(f"Scanning folder '{folder_path}' and all subfolders for videos...")
             video_paths = []
             valid_extensions = (".mp4", ".mov", ".mkv", ".avi", ".webm")
             for root, _, files in os.walk(folder_path):
                 for file in files:
-                    if file.lower().endswith(valid_extensions):
-                        video_paths.append(os.path.join(root, file))
-
-            if not video_paths:
-                print("No video files found in the selected directory or its subfolders.")
-                return
-            
+                    if file.lower().endswith(valid_extensions): video_paths.append(os.path.join(root, file))
+            if not video_paths: print("No video files found in the selected directory or its subfolders."); return
             total_videos = len(video_paths)
             print(f"Found {total_videos} videos. Starting bulk process with privacy set to '{privacy_status}'...")
-            
             for i, video_path in enumerate(video_paths):
                 video_title = Path(video_path).stem
                 print(f"\n--- ({i+1}/{total_videos}) Processing: {video_path} ---")
-                
                 print(f"  Checking for existing video with title: '{video_title}'...")
                 if check_video_exists(yt, cid, video_title):
-                    print(f"  ⏩ Already uploaded. Skipping video.")
-                    continue
-
+                    print(f"  ⏩ Already uploaded. Skipping video."); continue
                 print(f"  Video not found on channel. Starting upload...")
-                if not upload_video(yt, cid, video_path, video_title, f"Uploaded via Flet Bulk Uploader.", youtube_upload_progress_ring, youtube_upload_button, privacy_status=privacy_status):
+                # --- MODIFICATION: Pass 'page' object to helper function ---
+                if not upload_video(page, yt, cid, video_path, video_title, f"Uploaded via Flet Bulk Uploader.", youtube_upload_progress_ring, youtube_upload_button, privacy_status=privacy_status):
                     print(f"  ❌ Stopping bulk upload due to an error with '{Path(video_path).name}'."); break
-            
             print("\n--- Bulk upload process finished. ---")
-        except Exception as e:
-            print(f"❌ A critical error occurred during bulk upload: {e}")
-        finally:
-            start_button.disabled = False
-            page.update()
+        except Exception as e: print(f"❌ A critical error occurred during bulk upload: {e}")
+        finally: start_button.disabled = False; page.update()
 
     def downloader_worker(json_path, token, output_dir, start_button, stop_button, progress_bar):
         try:
@@ -215,8 +191,7 @@ def main(page: ft.Page):
             progress_bar.visible = True; page.update()
             for i, task in enumerate(download_tasks):
                 if page.session.get("downloader_should_stop"):
-                    print("\n🛑 Quá trình tải đã được người dùng dừng lại.")
-                    break
+                    print("\n🛑 Quá trình tải đã được người dùng dừng lại."); break
                 progress_bar.value = (i + 1) / len(download_tasks)
                 print(f"Đang xử lý {i+1}/{len(download_tasks)}: {task['display_path']}")
                 page.update()
@@ -226,8 +201,7 @@ def main(page: ft.Page):
                         print(f"  Bỏ qua file '{task['filename']}' do lỗi tải.")
                 else:
                     print(f"  Bỏ qua file '{task['filename']}' do không lấy được URL.")
-            else:
-                print("\nTải khóa học hoàn tất!")
+            else: print("\nTải khóa học hoàn tất!")
         except Exception as e: print(f"❌ Lỗi nghiêm trọng trong downloader: {e}")
         finally:
             page.session.set("downloader_should_stop", False); start_button.visible = True; stop_button.visible = False
@@ -266,14 +240,10 @@ def main(page: ft.Page):
 
     def start_bulk_upload_flow(e):
         folder_path = page.session.get("bulk_upload_folder_path")
-        if not folder_path:
-            print("❌ Error: Please select a folder first.")
-            return
-        # --- MODIFICATION: Get privacy status and pass it to the worker ---
-        privacy = bulk_privacy_dropdown.value or 'private'
-        e.control.disabled = True
-        page.update()
-        threading.Thread(target=bulk_upload_worker, args=(folder_path, e.control, privacy), daemon=True).start()
+        if not folder_path: print("❌ Error: Please select a folder first."); return
+        privacy = bulk_privacy_dropdown.value or 'private'; e.control.disabled = True; page.update()
+        # --- MODIFICATION: Pass 'page' object to thread worker ---
+        threading.Thread(target=bulk_upload_worker, args=(page, folder_path, e.control, privacy), daemon=True).start()
 
     def start_downloader_flow(e):
         token, json_path = downloader_token_field.value, page.session.get("downloader_json_path")
@@ -309,6 +279,9 @@ def main(page: ft.Page):
             page.update()
         threading.Thread(target=setup_worker,args=(json_path,downloader_output_dir_field.value,log_manager_dialog),daemon=True).start()
 
+    def clear_log_output(e):
+        console_log_textfield.value = "Log cleared.\n"; page.update()
+
     # --- UI CONTROLS AND PAGE DEFINITIONS ---
     channel_dialog,log_manager_dialog = ft.AlertDialog(modal=True,title=ft.Text("Choose Channel")),ft.AlertDialog(modal=True,title=ft.Text("Manage Log"))
     youtube_file_picker,downloader_file_picker = ft.FilePicker(on_result=on_youtube_video_picked),ft.FilePicker(on_result=on_downloader_json_picked)
@@ -319,45 +292,20 @@ def main(page: ft.Page):
     youtube_auth_stack = ft.Stack([youtube_auth_button,youtube_stop_button])
     youtube_selected_channel_text = ft.Text("Target Channel: None",size=16,weight=ft.FontWeight.BOLD)
     
-    # --- MODIFICATION: Added Privacy Dropdown for Single Uploader ---
     youtube_title_field,youtube_description_field = ft.TextField(label="Video Title"),ft.TextField(label="Video Description",multiline=True)
-    youtube_privacy_dropdown = ft.Dropdown(
-        label="Privacy", value="private", width=200,
-        options=[
-            ft.dropdown.Option("private", "Private"),
-            ft.dropdown.Option("unlisted", "Unlisted"),
-            ft.dropdown.Option("public", "Public"),
-        ]
-    )
+    youtube_privacy_dropdown = ft.Dropdown(label="Privacy", value="private", width=200, options=[ft.dropdown.Option("private", "Private"), ft.dropdown.Option("unlisted", "Unlisted"), ft.dropdown.Option("public", "Public")])
     youtube_selected_file_text = ft.Text("No video selected.")
     youtube_upload_button,youtube_upload_progress_ring = ft.ElevatedButton("Upload",on_click=start_youtube_upload_flow,icon=ft.icons.UPLOAD),ft.ProgressRing(visible=False,width=20)
     
-    # --- MODIFICATION: Added Privacy Dropdown for Bulk Uploader ---
     bulk_upload_folder_text = ft.Text("No folder selected.")
-    bulk_privacy_dropdown = ft.Dropdown(
-        label="Privacy", value="private", width=200,
-        options=[
-            ft.dropdown.Option("private", "Private"),
-            ft.dropdown.Option("unlisted", "Unlisted"),
-            ft.dropdown.Option("public", "Public"),
-        ]
-    )
+    bulk_privacy_dropdown = ft.Dropdown(label="Privacy", value="private", width=200, options=[ft.dropdown.Option("private", "Private"), ft.dropdown.Option("unlisted", "Unlisted"), ft.dropdown.Option("public", "Public")])
     bulk_upload_button = ft.ElevatedButton("Start Bulk Upload",on_click=start_bulk_upload_flow,icon=ft.icons.UPLOAD_FILE)
 
     youtube_view = ft.Column([
-        ft.Text("YouTube Uploader",size=24,weight=ft.FontWeight.BOLD),
-        ft.Text("Step 1: Authenticate"),
-        youtube_auth_stack,
-        youtube_selected_channel_text,
-        ft.Divider(),
-        ft.Text("Step 2: Upload Single Video",size=20),
-        youtube_title_field,
-        youtube_description_field,
-        ft.Row([youtube_privacy_dropdown]),
+        ft.Text("YouTube Uploader",size=24,weight=ft.FontWeight.BOLD), ft.Text("Step 1: Authenticate"), youtube_auth_stack, youtube_selected_channel_text,
+        ft.Divider(), ft.Text("Step 2: Upload Single Video",size=20), youtube_title_field, youtube_description_field, ft.Row([youtube_privacy_dropdown]),
         ft.Row([ft.ElevatedButton("Select Video",on_click=lambda _:youtube_file_picker.pick_files(allowed_extensions=["mp4","mov"])),youtube_selected_file_text]),
-        ft.Row([youtube_upload_button,youtube_upload_progress_ring]),
-        ft.Divider(),
-        ft.Text("Step 3: Bulk Upload from Folder (Recursive)",size=20),
+        ft.Row([youtube_upload_button,youtube_upload_progress_ring]), ft.Divider(), ft.Text("Step 3: Bulk Upload from Folder (Recursive)",size=20),
         ft.Row([ft.ElevatedButton("Select Folder",on_click=lambda _:directory_picker.get_directory_path(),icon=ft.icons.FOLDER_OPEN),bulk_upload_folder_text]),
         ft.Row([bulk_privacy_dropdown, bulk_upload_button]),
     ],spacing=12,scroll=ft.ScrollMode.AUTO)
@@ -372,18 +320,24 @@ def main(page: ft.Page):
     downloader_progress_bar = ft.ProgressBar(visible=False,width=400)
     downloader_view = ft.Column([ft.Text("Course Downloader",size=24,weight=ft.FontWeight.BOLD),ft.Text("Requires 'aria2c' to be installed."),downloader_token_field,ft.Row([ft.ElevatedButton("Select Course JSON",on_click=lambda _:downloader_file_picker.pick_files(allowed_extensions=["json"])),downloader_selected_json_text]),downloader_output_dir_field,downloader_button_row,downloader_progress_bar],spacing=12)
     
-    console_log_view = ft.TextField(multiline=True,read_only=True,expand=True,value="Welcome!\n",border_color="grey")
+    console_log_textfield = ft.TextField(multiline=True,read_only=True,expand=True,value="Welcome!\n",border_color="grey")
+    clear_log_button = ft.ElevatedButton("Clear Log", on_click=clear_log_output, icon=ft.icons.CLEAR_ALL)
+    console_log_view = ft.Column([ft.Row([clear_log_button], alignment=ft.MainAxisAlignment.END), console_log_textfield,], expand=True)
+    
     page_container = ft.Column([youtube_view],expand=True)
     
     def nav_change(e):
-        idx=e.control.selected_index;page_container.controls.clear();console_log_view.visible=(idx==2)
-        if idx==0:page_container.controls.append(youtube_view)
-        elif idx==1:page_container.controls.append(downloader_view)
-        elif idx==2:page_container.controls.append(console_log_view)
+        idx=e.control.selected_index; page_container.controls.clear()
+        if idx==0: page_container.controls.append(youtube_view)
+        elif idx==1: page_container.controls.append(downloader_view)
+        elif idx==2: page_container.controls.append(console_log_view)
         page.update()
         
     navigation_rail = ft.NavigationRail(selected_index=0,label_type=ft.NavigationRailLabelType.ALL,on_change=nav_change,destinations=[ft.NavigationRailDestination(icon=ft.icons.UPLOAD_OUTLINED,selected_icon=ft.icons.UPLOAD,label="YouTube"),ft.NavigationRailDestination(icon=ft.icons.DOWNLOAD_OUTLINED,selected_icon=ft.icons.DOWNLOAD,label="Downloader"),ft.NavigationRailDestination(icon=ft.icons.TERMINAL_OUTLINED,selected_icon=ft.icons.TERMINAL,label="Log")])
-    sys.stdout=ConsoleLogger(console_log_view,page);sys.stderr=ConsoleLogger(console_log_view,page)
+    
+    sys.stdout=ConsoleLogger(console_log_textfield,page);sys.stderr=ConsoleLogger(console_log_textfield,page)
+    
+    page.navigation_rail = navigation_rail
     page.add(ft.Row([navigation_rail,ft.VerticalDivider(width=1),page_container],expand=True))
 
 if __name__=="__main__":
