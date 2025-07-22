@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Empire Link Catcher (Targeted Mode)",
+  "version": "1.3",
+  "description": "Chỉ kích hoạt trên trang empire.edu.vn để bắt link API và lấy dữ liệu JSON.",
+  "permissions": [
+    "storage",
+    "downloads",
+    "debugger",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://*.empire.edu.vn/*",
+    "*://api.empire.io.vn/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

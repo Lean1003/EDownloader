@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Empire Catcher</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <h3>Empire Link Catcher</h3>
+  <div class="control-row">
+    <span>Kích hoạt Extension</span>
+    <label class="switch">
+      <input type="checkbox" id="toggleSwitch">
+      <span class="slider round"></span>
+    </label>
+  </div>
+  <hr>
+  <div id="data-section" class="hidden">
+    <h4>Dữ liệu gần nhất</h4>
+    <p class="url-display" id="caughtUrl"></p>
+    <button id="downloadBtn">Tải file .json</button>
+  </div>
+  <div id="no-data-section">
+     <p class="note">Chưa có dữ liệu nào được bắt. Hãy truy cập trang empire.edu.vn và thực hiện một thao tác gọi API.</p>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
